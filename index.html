@@ -104,6 +104,48 @@ header {
 }
 .icon-btn:active { background: var(--surface); color: var(--accent); }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* RATE LIMIT INDICATOR */
+.rate-indicator {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+  background: transparent;
+  cursor: help;
+  user-select: none;
+}
+.rate-indicator.warning { color: #f5a623; border-color: #f5a623; }
+.rate-indicator.danger { color: var(--danger); border-color: var(--danger); }
+.rate-indicator .rate-count { font-weight: 700; }
+.rate-indicator .rate-sep { color: var(--text-faint); margin: 0 1px; }
+.rate-indicator .rate-max { color: var(--text-faint); }
+.rate-indicator .rate-label {
+  font-size: 9px;
+  margin-left: 4px;
+  color: var(--text-faint);
+  letter-spacing: 0.1em;
+}
+.rate-indicator.warning .rate-label,
+.rate-indicator.danger .rate-label { color: currentColor; opacity: 0.7; }
+
+.dl-btn.ratelimited {
+  border-color: var(--danger);
+  color: var(--danger);
+  opacity: 0.7;
+}
+
 /* SEARCH SECTION */
 .search-wrap {
   padding: 18px;
@@ -619,7 +661,13 @@ header {
 
 <header>
   <div class="brand"><span class="dot"></span>NZB CONSOLE</div>
-  <button class="icon-btn" id="settingsBtn" aria-label="settings">⚙</button>
+  <div class="header-right">
+    <div class="rate-indicator" id="rateIndicator" title="Torbox usenet downloads this hour">
+      <span class="rate-count" id="rateCount">0</span><span class="rate-sep">/</span><span class="rate-max">60</span>
+      <span class="rate-label">HR</span>
+    </div>
+    <button class="icon-btn" id="settingsBtn" aria-label="settings">⚙</button>
+  </div>
 </header>
 
 <section class="search-wrap">
@@ -915,6 +963,65 @@ function escapeHtml(s) {
 }
 function escapeAttr(s) { return escapeHtml(s); }
 
+// ---- RATE LIMIT TRACKING ----
+// Torbox limit: 60 POST /usenet/createusenetdownload per hour per token
+const RATE_KEY = 'torboxSends';
+const RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const RATE_MAX = 60;
+
+function loadRateHistory() {
+  try {
+    const raw = localStorage.getItem(RATE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    const cutoff = Date.now() - RATE_WINDOW_MS;
+    return arr.filter(t => t > cutoff);
+  } catch (e) { return []; }
+}
+function recordSend() {
+  const history = loadRateHistory();
+  history.push(Date.now());
+  try { localStorage.setItem(RATE_KEY, JSON.stringify(history)); } catch (e) {}
+  updateRateIndicator();
+}
+function getRateState() {
+  const history = loadRateHistory();
+  const count = history.length;
+  // Time until the oldest tracked request ages out, freeing a slot
+  let cooldownMs = 0;
+  if (count >= RATE_MAX && history.length > 0) {
+    const oldest = history[0];
+    cooldownMs = Math.max(0, (oldest + RATE_WINDOW_MS) - Date.now());
+  }
+  return { count, max: RATE_MAX, atLimit: count >= RATE_MAX, cooldownMs };
+}
+function fmtCooldown(ms) {
+  if (ms <= 0) return '0s';
+  const totalSec = Math.ceil(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+function updateRateIndicator() {
+  const s = getRateState();
+  const el = $('#rateIndicator');
+  $('#rateCount').textContent = s.count;
+  el.classList.remove('warning', 'danger');
+  if (s.count >= RATE_MAX) {
+    el.classList.add('danger');
+  } else if (s.count >= RATE_MAX * 0.8) {
+    el.classList.add('warning');
+  }
+  // Update title tooltip
+  if (s.atLimit) {
+    el.title = `Rate limited. Next slot in ${fmtCooldown(s.cooldownMs)}`;
+  } else {
+    el.title = `${s.count}/${RATE_MAX} Torbox downloads used this hour (${RATE_MAX - s.count} remaining)`;
+  }
+}
+// Refresh indicator every 15s so the count rolls down as old sends age out
+setInterval(updateRateIndicator, 15000);
+
 // ---- TORBOX ----
 async function sendToTorbox(btn) {
   if (!state.torboxKey) {
@@ -924,6 +1031,24 @@ async function sendToTorbox(btn) {
   }
   const link = btn.dataset.link;
   if (!link) { toast('no link', 'error'); return; }
+
+  // Client-side rate limit check
+  const rate = getRateState();
+  if (rate.atLimit) {
+    toast(`rate limited - retry in ${fmtCooldown(rate.cooldownMs)}`, 'error');
+    btn.textContent = `WAIT ${fmtCooldown(rate.cooldownMs)}`;
+    btn.className = 'dl-btn ratelimited';
+    btn.disabled = true;
+    setTimeout(() => {
+      const r2 = getRateState();
+      if (!r2.atLimit) {
+        btn.textContent = '→ TORBOX';
+        btn.className = 'dl-btn';
+        btn.disabled = false;
+      }
+    }, Math.min(rate.cooldownMs + 500, 60000));
+    return;
+  }
 
   const original = btn.textContent;
   btn.disabled = true;
@@ -940,12 +1065,25 @@ async function sendToTorbox(btn) {
       body: formData,
     });
 
+    // Record EVERY attempt (success or fail) since they all count toward the limit
+    recordSend();
+
     // Read as text first so we can show useful debug info if it's not JSON
     const rawText = await res.text();
     let data = null;
     try { data = JSON.parse(rawText); } catch (e) { /* not JSON */ }
 
     btn.closest('.result').classList.remove('downloading');
+
+    // Handle 429 (server-side rate limit) explicitly
+    if (res.status === 429) {
+      btn.textContent = '✕ RATE LIMITED';
+      btn.className = 'dl-btn ratelimited';
+      const cd = getRateState().cooldownMs || RATE_WINDOW_MS / 2;
+      toast(`torbox rate limit hit - retry in ${fmtCooldown(cd)}`, 'error');
+      // Keep disabled - don't auto-reset for rate limit
+      return;
+    }
 
     if (data && data.success) {
       btn.textContent = '✓ QUEUED';
@@ -1135,6 +1273,7 @@ $('#sortbar').addEventListener('click', (e) => {
 
 // ---- INIT ----
 loadSettings();
+updateRateIndicator();
 if (!state.hydraUrl || !state.hydraKey) {
   setTimeout(() => openSheet(), 400);
 }
