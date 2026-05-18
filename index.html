@@ -166,6 +166,45 @@ header {
   border-color: var(--accent);
 }
 
+/* SORT BAR */
+.sortbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sortbar::-webkit-scrollbar { display: none; }
+.sortbar-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  padding-right: 4px;
+  flex-shrink: 0;
+}
+.sort-btn {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sort-btn.active {
+  background: var(--surface);
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
 /* RESULTS */
 .results {
   padding-bottom: 40px;
@@ -213,16 +252,36 @@ header {
 }
 
 .result-meta {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: var(--text-dim);
-  letter-spacing: 0.03em;
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  gap: 8px;
+  margin-top: 2px;
 }
-.result-meta .sep { color: var(--text-faint); }
-.result-meta .indexer { color: var(--accent-dim); }
+.meta-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.meta-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  font-weight: 700;
+}
+.meta-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meta-value.indexer {
+  color: var(--accent-dim);
+}
 
 .result-actions {
   display: flex;
@@ -428,6 +487,13 @@ header {
     <button class="chip" data-cat="movie" data-label="MOVIES">MOVIES</button>
     <button class="chip" data-cat="music" data-label="MUSIC">MUSIC</button>
   </div>
+  <div class="sortbar" id="sortbar">
+    <span class="sortbar-label">SORT</span>
+    <button class="sort-btn active" data-sort="relevance">RELEVANCE</button>
+    <button class="sort-btn" data-sort="size">SIZE ↓</button>
+    <button class="sort-btn" data-sort="age">NEWEST</button>
+    <button class="sort-btn" data-sort="grabs">GRABS ↓</button>
+  </div>
 </section>
 
 <section class="results" id="results">
@@ -477,6 +543,8 @@ const $$ = (s) => document.querySelectorAll(s);
 
 const state = {
   category: 'search',
+  sort: 'relevance',
+  lastResults: [],
   hydraUrl: '',
   hydraKey: '',
   torboxKey: '',
@@ -588,9 +656,9 @@ function parseNewznab(xmlText) {
       guid: item.querySelector('guid')?.textContent || '',
       pubDate: item.querySelector('pubDate')?.textContent || '',
       size: parseInt(attrs.size || '0', 10),
-      indexer: attrs.indexer || attrs.nzbhydraindexer || '?',
+      indexer: attrs.hydraIndexerName || attrs.hydraindexername || attrs.indexer || attrs.nzbhydraindexer || '?',
       category: attrs.category || '',
-      grabs: attrs.grabs || '0',
+      grabs: parseInt(attrs.grabs || '0', 10),
     };
   });
 }
@@ -623,21 +691,21 @@ function renderStatus(text, cls = '') {
 
 function renderResults(items) {
   const container = $('#results');
-  if (!items.length) {
+  state.lastResults = items; // store for re-sorting without re-fetching
+  const sorted = sortResults(items, state.sort);
+  if (!sorted.length) {
     container.innerHTML = `<div class="empty"><div class="glyph">∅</div><div class="msg">no results</div></div>`;
     return;
   }
-  const status = `<div class="status-line"><span class="accent">${items.length}</span> result${items.length === 1 ? '' : 's'}</div>`;
-  const rows = items.map((it, i) => `
+  const status = `<div class="status-line"><span class="accent">${sorted.length}</span> result${sorted.length === 1 ? '' : 's'}</div>`;
+  const rows = sorted.map((it, i) => `
     <div class="result" data-i="${i}">
       <div class="result-title">${escapeHtml(it.title)}</div>
       <div class="result-meta">
-        <span class="indexer">${escapeHtml(it.indexer)}</span>
-        <span class="sep">·</span>
-        <span>${fmtSize(it.size)}</span>
-        <span class="sep">·</span>
-        <span>${fmtAge(it.pubDate)}</span>
-        ${it.grabs && it.grabs !== '0' ? `<span class="sep">·</span><span>${it.grabs}↓</span>` : ''}
+        <div class="meta-cell"><div class="meta-label">SOURCE</div><div class="meta-value indexer">${escapeHtml(it.indexer)}</div></div>
+        <div class="meta-cell"><div class="meta-label">SIZE</div><div class="meta-value">${fmtSize(it.size)}</div></div>
+        <div class="meta-cell"><div class="meta-label">AGE</div><div class="meta-value">${fmtAge(it.pubDate)}</div></div>
+        <div class="meta-cell"><div class="meta-label">GRABS</div><div class="meta-value">${it.grabs || 0}</div></div>
       </div>
       <div class="result-actions">
         <button class="dl-btn" data-link="${escapeAttr(it.link)}" data-title="${escapeAttr(it.title)}">→ TORBOX</button>
@@ -649,6 +717,26 @@ function renderResults(items) {
   container.querySelectorAll('.dl-btn').forEach(btn => {
     btn.addEventListener('click', () => sendToTorbox(btn));
   });
+}
+
+function sortResults(items, mode) {
+  const arr = [...items];
+  switch (mode) {
+    case 'size':
+      arr.sort((a, b) => (b.size || 0) - (a.size || 0));
+      break;
+    case 'age':
+      arr.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
+      break;
+    case 'grabs':
+      arr.sort((a, b) => (b.grabs || 0) - (a.grabs || 0));
+      break;
+    case 'relevance':
+    default:
+      // leave as-is (server-side order)
+      break;
+  }
+  return arr;
 }
 
 function escapeHtml(s) {
@@ -735,6 +823,18 @@ $('#chips').addEventListener('click', (e) => {
   state.category = chip.dataset.cat;
   const q = $('#searchInput').value.trim();
   if (q) search(q);
+});
+
+$('#sortbar').addEventListener('click', (e) => {
+  const btn = e.target.closest('.sort-btn');
+  if (!btn) return;
+  $$('.sort-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  state.sort = btn.dataset.sort;
+  // re-render in place without re-fetching
+  if (state.lastResults && state.lastResults.length) {
+    renderResults(state.lastResults);
+  }
 });
 
 // ---- INIT ----
