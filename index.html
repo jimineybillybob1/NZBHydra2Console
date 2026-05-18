@@ -110,6 +110,10 @@ header {
   border-bottom: 1px solid var(--border-soft);
 }
 
+.search-wrapper {
+  position: relative;
+}
+
 .search-box {
   position: relative;
   display: flex;
@@ -133,8 +137,125 @@ header {
   font-family: 'JetBrains Mono', monospace;
   font-size: 15px;
   padding: 14px 12px;
+  min-width: 0;
 }
 .search-box input::placeholder { color: var(--text-faint); }
+
+/* hide native iOS search clear */
+.search-box input::-webkit-search-cancel-button,
+.search-box input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  display: none;
+}
+
+.clear-btn {
+  display: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-faint);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  padding: 0 14px;
+  height: 100%;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.clear-btn.visible { display: block; }
+.clear-btn:active { color: var(--accent); }
+
+/* RECENT SEARCHES DROPDOWN */
+.recent-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  z-index: 40;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.recent-dropdown.open { display: block; }
+.recent-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  position: sticky;
+  top: 0;
+  background: var(--bg-2);
+}
+.recent-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+}
+.recent-clear {
+  background: transparent;
+  border: 0;
+  color: var(--danger);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.recent-clear:active { opacity: 0.6; }
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+  background: transparent;
+  border-left: 0;
+  border-right: 0;
+  width: 100%;
+  text-align: left;
+}
+.recent-item:last-child { border-bottom: 0; }
+.recent-item:active { background: var(--surface); }
+.recent-item .glyph {
+  color: var(--text-faint);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.recent-item .text {
+  flex: 1;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-item .remove {
+  background: transparent;
+  border: 0;
+  color: var(--text-faint);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 4px 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.recent-item .remove:active { color: var(--danger); }
+.recent-empty {
+  padding: 20px 14px;
+  text-align: center;
+  color: var(--text-faint);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
 
 .chips {
   display: flex;
@@ -477,9 +598,19 @@ header {
 </header>
 
 <section class="search-wrap">
-  <form class="search-box" id="searchForm">
-    <input type="search" id="searchInput" placeholder="search..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
-  </form>
+  <div class="search-wrapper">
+    <form class="search-box" id="searchForm">
+      <input type="search" id="searchInput" placeholder="search..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <button type="button" class="clear-btn" id="clearBtn" aria-label="clear">✕</button>
+    </form>
+    <div class="recent-dropdown" id="recentDropdown">
+      <div class="recent-header">
+        <span class="recent-title">RECENT</span>
+        <button type="button" class="recent-clear" id="recentClear">CLEAR ALL</button>
+      </div>
+      <div class="recent-list" id="recentList"></div>
+    </div>
+  </div>
   <div class="chips" id="chips">
     <button class="chip active" data-cat="search" data-label="ALL">ALL</button>
     <button class="chip" data-cat="book" data-label="BOOKS">BOOKS</button>
@@ -803,6 +934,61 @@ async function sendToTorbox(btn) {
   }
 }
 
+// ---- RECENT SEARCHES ----
+const RECENT_KEY = 'recentSearches';
+const RECENT_MAX = 10;
+
+function getRecent() {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
+}
+function setRecent(arr) {
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(arr)); } catch (e) {}
+}
+function addRecent(query) {
+  const q = query.trim();
+  if (!q) return;
+  let recent = getRecent().filter(item => item.q !== q);
+  recent.unshift({ q, cat: state.category, t: Date.now() });
+  if (recent.length > RECENT_MAX) recent = recent.slice(0, RECENT_MAX);
+  setRecent(recent);
+}
+function removeRecent(query) {
+  setRecent(getRecent().filter(item => item.q !== query));
+}
+function clearRecent() {
+  setRecent([]);
+  renderRecent();
+}
+function renderRecent() {
+  const list = $('#recentList');
+  const recent = getRecent();
+  if (!recent.length) {
+    list.innerHTML = `<div class="recent-empty">no recent searches</div>`;
+    return;
+  }
+  list.innerHTML = recent.map(item => `
+    <button class="recent-item" data-q="${escapeAttr(item.q)}" data-cat="${escapeAttr(item.cat || 'search')}">
+      <span class="glyph">↻</span>
+      <span class="text">${escapeHtml(item.q)}</span>
+      <span class="remove" data-remove="${escapeAttr(item.q)}">✕</span>
+    </button>
+  `).join('');
+}
+function openRecent() {
+  renderRecent();
+  $('#recentDropdown').classList.add('open');
+}
+function closeRecent() {
+  $('#recentDropdown').classList.remove('open');
+}
+function updateClearBtn() {
+  const hasText = $('#searchInput').value.length > 0;
+  $('#clearBtn').classList.toggle('visible', hasText);
+}
+
 // ---- EVENTS ----
 $('#settingsBtn').addEventListener('click', openSheet);
 $('#closeSheet').addEventListener('click', closeSheet);
@@ -812,7 +998,65 @@ $('#saveSettings').addEventListener('click', saveSettings);
 $('#searchForm').addEventListener('submit', (e) => {
   e.preventDefault();
   $('#searchInput').blur();
+  closeRecent();
+  const q = $('#searchInput').value.trim();
+  if (q) addRecent(q);
   search($('#searchInput').value);
+});
+
+$('#searchInput').addEventListener('input', updateClearBtn);
+
+$('#searchInput').addEventListener('focus', () => {
+  // show recent dropdown if input is empty
+  if (!$('#searchInput').value.trim() && getRecent().length) {
+    openRecent();
+  }
+});
+
+$('#clearBtn').addEventListener('click', () => {
+  $('#searchInput').value = '';
+  updateClearBtn();
+  $('#searchInput').focus();
+  if (getRecent().length) openRecent();
+});
+
+$('#recentClear').addEventListener('click', (e) => {
+  e.stopPropagation();
+  clearRecent();
+});
+
+$('#recentList').addEventListener('click', (e) => {
+  // handle remove (X) button
+  const removeBtn = e.target.closest('[data-remove]');
+  if (removeBtn) {
+    e.stopPropagation();
+    removeRecent(removeBtn.dataset.remove);
+    renderRecent();
+    return;
+  }
+  // handle item tap (re-run search)
+  const item = e.target.closest('.recent-item');
+  if (!item) return;
+  const q = item.dataset.q;
+  const cat = item.dataset.cat;
+  $('#searchInput').value = q;
+  updateClearBtn();
+  // set category chip if it differs
+  if (cat && cat !== state.category) {
+    state.category = cat;
+    $$('.chip').forEach(c => c.classList.toggle('active', c.dataset.cat === cat));
+  }
+  closeRecent();
+  $('#searchInput').blur();
+  addRecent(q);
+  search(q);
+});
+
+// close recent dropdown when tapping outside
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.search-wrapper')) {
+    closeRecent();
+  }
 });
 
 $('#chips').addEventListener('click', (e) => {
