@@ -538,6 +538,31 @@ header {
   letter-spacing: 0.04em;
 }
 
+.input-with-toggle {
+  display: flex;
+  align-items: stretch;
+}
+.input-with-toggle input {
+  flex: 1;
+  min-width: 0;
+  border-right: 0;
+}
+.reveal-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 1px solid var(--border-soft);
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 0 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.reveal-btn:active { color: var(--accent); }
+.reveal-btn.shown { color: var(--accent); }
+
 .save-btn {
   width: 100%;
   background: var(--accent);
@@ -649,12 +674,18 @@ header {
     </div>
     <div class="field">
       <label>NZBHydra API Key</label>
-      <input type="text" id="hydraKey" placeholder="abc123...">
+      <div class="input-with-toggle">
+        <input type="password" id="hydraKey" placeholder="abc123...">
+        <button type="button" class="reveal-btn" data-target="hydraKey" aria-label="show/hide">SHOW</button>
+      </div>
       <div class="hint">config → authorization → api key</div>
     </div>
     <div class="field">
       <label>Torbox API Key</label>
-      <input type="text" id="torboxKey" placeholder="tk-...">
+      <div class="input-with-toggle">
+        <input type="password" id="torboxKey" placeholder="tk-...">
+        <button type="button" class="reveal-btn" data-target="torboxKey" aria-label="show/hide">SHOW</button>
+      </div>
       <div class="hint">torbox.app → settings → api</div>
     </div>
     <div class="field">
@@ -720,6 +751,15 @@ function openSheet() {
 function closeSheet() {
   $('#sheetBackdrop').classList.remove('open');
   $('#sheet').classList.remove('open');
+  // re-hide any revealed API keys
+  document.querySelectorAll('.reveal-btn').forEach(btn => {
+    const input = document.getElementById(btn.dataset.target);
+    if (input && input.type === 'text') {
+      input.type = 'password';
+      btn.textContent = 'SHOW';
+      btn.classList.remove('shown');
+    }
+  });
 }
 
 // ---- TOAST ----
@@ -994,6 +1034,18 @@ $('#settingsBtn').addEventListener('click', openSheet);
 $('#closeSheet').addEventListener('click', closeSheet);
 $('#sheetBackdrop').addEventListener('click', closeSheet);
 $('#saveSettings').addEventListener('click', saveSettings);
+
+// API key reveal toggles
+document.querySelectorAll('.reveal-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const input = document.getElementById(btn.dataset.target);
+    if (!input) return;
+    const isPwd = input.type === 'password';
+    input.type = isPwd ? 'text' : 'password';
+    btn.textContent = isPwd ? 'HIDE' : 'SHOW';
+    btn.classList.toggle('shown', isPwd);
+  });
+});
 
 $('#searchForm').addEventListener('submit', (e) => {
   e.preventDefault();
