@@ -13,7 +13,7 @@
  *   3. Deploy via the Cloudflare dashboard
  */
 
-const NZBHYDRA_URL = "https://jimineybillybob-nzbhydra.elfhosted.com";
+const NZBHYDRA_URL = "https://username-nzbhydra.elfhosted.com";
 const TORBOX_URL = "https://api.torbox.app";
 const ALLOWED_ORIGIN = "*"; // e.g. "https://yourusername.github.io" or "*"
 
