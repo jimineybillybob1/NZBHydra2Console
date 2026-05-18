@@ -681,18 +681,30 @@ async function sendToTorbox(btn) {
       body: formData,
     });
 
-    const data = await res.json();
+    // Read as text first so we can show useful debug info if it's not JSON
+    const rawText = await res.text();
+    let data = null;
+    try { data = JSON.parse(rawText); } catch (e) { /* not JSON */ }
+
     btn.closest('.result').classList.remove('downloading');
 
-    if (data.success) {
+    if (data && data.success) {
       btn.textContent = '✓ QUEUED';
       btn.className = 'dl-btn success';
       toast('sent to torbox', 'success');
-    } else {
+    } else if (data) {
       btn.textContent = '✕ FAILED';
       btn.className = 'dl-btn error';
       toast(`torbox: ${data.detail || data.error || 'unknown error'}`, 'error');
       setTimeout(() => { btn.textContent = original; btn.className = 'dl-btn'; btn.disabled = false; }, 4000);
+    } else {
+      // Non-JSON response — show first bit of body so we can see what happened
+      btn.textContent = '✕ FAILED';
+      btn.className = 'dl-btn error';
+      const snippet = (rawText || '').replace(/\s+/g, ' ').trim().slice(0, 200) || `HTTP ${res.status}`;
+      toast(`bad response: ${snippet}`, 'error');
+      console.error('Torbox non-JSON response:', res.status, rawText);
+      setTimeout(() => { btn.textContent = original; btn.className = 'dl-btn'; btn.disabled = false; }, 6000);
     }
   } catch (err) {
     btn.closest('.result').classList.remove('downloading');
