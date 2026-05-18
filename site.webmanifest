@@ -1,0 +1,37 @@
+{
+  "name": "HydraDL",
+  "short_name": "HydraDL",
+  "description": "Mobile-first frontend for NZBHydra2 + Torbox",
+  "start_url": "/NZBHydra2Console/",
+  "scope": "/NZBHydra2Console/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0d0c0a",
+  "background_color": "#0d435b",
+  "icons": [
+    {
+      "src": "/NZBHydra2Console/web-app-manifest-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/NZBHydra2Console/web-app-manifest-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/NZBHydra2Console/web-app-manifest-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/NZBHydra2Console/web-app-manifest-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
